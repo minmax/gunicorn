@@ -103,18 +103,20 @@ class Config(object):
     def worker_class_str(self):
         uri = self.settings['worker_class'].get()
 
-        # are we using a threaded worker?
-        is_sync = uri.endswith('SyncWorker') or uri == 'sync'
-        if is_sync and self.threads > 1:
-            return "gthread"
-        return uri
+        if isinstance(uri, str):
+            # are we using a threaded worker?
+            is_sync = uri.endswith('SyncWorker') or uri == 'sync'
+            if is_sync and self.threads > 1:
+                return "gthread"
+            return uri
+        return uri.__name__
 
     @property
     def worker_class(self):
         uri = self.settings['worker_class'].get()
 
         # are we using a threaded worker?
-        is_sync = uri.endswith('SyncWorker') or uri == 'sync'
+        is_sync = isinstance(uri, str) and (uri.endswith('SyncWorker') or uri == 'sync')
         if is_sync and self.threads > 1:
             uri = "gunicorn.workers.gthread.ThreadWorker"
 
@@ -1393,7 +1395,7 @@ class AccessLogFormat(Setting):
         s            status
         B            response length
         b            response length or ``'-'`` (CLF format)
-        f            referer
+        f            referrer (note: header is ``referer``)
         a            user agent
         T            request time in seconds
         M            request time in milliseconds
@@ -1504,7 +1506,7 @@ class LogConfigDict(Setting):
     desc = """\
     The log config dictionary to use, using the standard Python
     logging module's dictionary configuration format. This option
-    takes precedence over the :ref:`logconfig` and :ref:`logConfigJson` options,
+    takes precedence over the :ref:`logconfig` and :ref:`logconfig-json` options,
     which uses the older file configuration format and JSON
     respectively.
 
@@ -2152,7 +2154,7 @@ class CertReqs(Setting):
     ===========  ===========================
     --cert-reqs      Description
     ===========  ===========================
-    `0`          no client veirifcation
+    `0`          no client verification
     `1`          ssl.CERT_OPTIONAL
     `2`          ssl.CERT_REQUIRED
     ===========  ===========================
@@ -2254,7 +2256,7 @@ class StripHeaderSpaces(Setting):
         This is known to induce vulnerabilities and is not compliant with the HTTP/1.1 standard.
         See https://portswigger.net/research/http-desync-attacks-request-smuggling-reborn.
 
-        Use with care and only if necessary. May be removed in a future version.
+        Use with care and only if necessary. Deprecated; scheduled for removal in 25.0.0
 
         .. versionadded:: 20.0.1
         """
@@ -2274,9 +2276,13 @@ class PermitUnconventionalHTTPMethod(Setting):
         methods with lowercase characters or methods containing the # character.
         HTTP methods are case sensitive by definition, and merely uppercase by convention.
 
-        This option is provided to diagnose backwards-incompatible changes.
+        If unset, Gunicorn will apply nonstandard restrictions and cause 400 response status
+        in cases where otherwise 501 status is expected. While this option does modify that
+        behaviour, it should not be depended upon to guarantee standards-compliant behaviour.
+        Rather, it is provided temporarily, to assist in diagnosing backwards-incompatible
+        changes around the incomplete application of those restrictions.
 
-        Use with care and only if necessary. May be removed in a future version.
+        Use with care and only if necessary. Temporary; scheduled for removal in 24.0.0
 
         .. versionadded:: 22.0.0
         """
@@ -2296,7 +2302,8 @@ class PermitUnconventionalHTTPVersion(Setting):
         It is unusual to specify HTTP 1 versions other than 1.0 and 1.1.
 
         This option is provided to diagnose backwards-incompatible changes.
-        Use with care and only if necessary. May be removed in a future version.
+        Use with care and only if necessary. Temporary; the precise effect of this option may
+        change in a future version, or it may be removed altogether.
 
         .. versionadded:: 22.0.0
         """
@@ -2316,7 +2323,7 @@ class CasefoldHTTPMethod(Setting):
 
          This option is provided because previous versions of gunicorn defaulted to this behaviour.
 
-         Use with care and only if necessary. May be removed in a future version.
+         Use with care and only if necessary. Deprecated; scheduled for removal in 24.0.0
 
          .. versionadded:: 22.0.0
          """
@@ -2361,24 +2368,6 @@ class HeaderMap(Setting):
         Use with care and only if necessary and after considering if your problem could
         instead be solved by specifically renaming or rewriting only the intended headers
         on a proxy in front of Gunicorn.
-
-        .. versionadded:: 22.0.0
-        """
-
-
-class TolerateDangerousFraming(Setting):
-    name = "tolerate_dangerous_framing"
-    section = "Server Mechanics"
-    cli = ["--tolerate-dangerous-framing"]
-    validator = validate_bool
-    action = "store_true"
-    default = False
-    desc = """\
-        Process requests with both Transfer-Encoding and Content-Length
-
-        This is known to induce vulnerabilities, but not strictly forbidden by RFC9112.
-
-        Use with care and only if necessary. May be removed in a future version.
 
         .. versionadded:: 22.0.0
         """

@@ -67,7 +67,10 @@ class ChunkedReader(object):
             # Remove \r\n after chunk
             rest = rest[size:]
             while len(rest) < 2:
-                rest += unreader.read()
+                new_data = unreader.read()
+                if not new_data:
+                    break
+                rest += new_data
             if rest[:2] != b'\r\n':
                 raise ChunkMissingTerminator(rest[:2])
             (size, rest) = self.parse_chunk_size(unreader, data=rest[2:])
@@ -90,6 +93,8 @@ class ChunkedReader(object):
         if chunk_ext:
             chunk_size = chunk_size.rstrip(b" \t")
         if any(n not in b"0123456789abcdefABCDEF" for n in chunk_size):
+            raise InvalidChunkSize(chunk_size)
+        if len(chunk_size) == 0:
             raise InvalidChunkSize(chunk_size)
         chunk_size = int(chunk_size, 16)
 
