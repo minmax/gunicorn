@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -
 #
 # This file is part of gunicorn released under the MIT license.
 # See the NOTICE for more information.
@@ -12,7 +11,7 @@ from gunicorn.http.errors import (
     InvalidHeader, InvalidHeaderName, NoMoreData,
     InvalidRequestLine, InvalidRequestMethod, InvalidHTTPVersion,
     LimitRequestLine, LimitRequestHeaders,
-    UnsupportedTransferCoding,
+    UnsupportedTransferCoding, ObsoleteFolding,
 )
 from gunicorn.http.errors import InvalidProxyLine, ForbiddenProxyRequest
 from gunicorn.http.errors import InvalidSchemeHeaders
@@ -31,7 +30,7 @@ VERSION_RE = re.compile(r"HTTP/(\d)\.(\d)")
 RFC9110_5_5_INVALID_AND_DANGEROUS = re.compile(r"[\0\r\n]")
 
 
-class Message(object):
+class Message:
     def __init__(self, cfg, unreader, peer_addr):
         self.cfg = cfg
         self.unreader = unreader
@@ -78,6 +77,7 @@ class Message(object):
         # handle scheme headers
         scheme_header = False
         secure_scheme_headers = {}
+        forwarder_headers = []
         if from_trailer:
             # nonsense. either a request is https from the beginning
             #  .. or we are just behind a proxy who does not remove conflicting trailers
@@ -86,6 +86,7 @@ class Message(object):
               not isinstance(self.peer_addr, tuple)
               or self.peer_addr[0] in cfg.forwarded_allow_ips):
             secure_scheme_headers = cfg.secure_scheme_headers
+            forwarder_headers = cfg.forwarder_headers
 
         # Parse headers into key/value pairs paying attention
         # to continuation lines.
@@ -110,10 +111,13 @@ class Message(object):
             # b"\xDF".decode("latin-1").upper().encode("ascii") == b"SS"
             name = name.upper()
 
-            value = [value.lstrip(" \t")]
+            value = [value.strip(" \t")]
 
-            # Consume value continuation lines
+            # Consume value continuation lines..
             while lines and lines[0].startswith((" ", "\t")):
+                # .. which is obsolete here, and no longer done by default
+                if not self.cfg.permit_obsolete_folding:
+                    raise ObsoleteFolding(name)
                 curr = lines.pop(0)
                 header_length += len(curr) + len("\r\n")
                 if header_length > self.limit_request_field_size > 0:
@@ -144,7 +148,10 @@ class Message(object):
             # HTTP_X_FORWARDED_FOR = 2001:db8::ha:cc:ed,127.0.0.1,::1
             # Only modify after fixing *ALL* header transformations; network to wsgi env
             if "_" in name:
-                if self.cfg.header_map == "dangerous":
+                if name in forwarder_headers or "*" in forwarder_headers:
+                    # This forwarder may override our environment
+                    pass
+                elif self.cfg.header_map == "dangerous":
                     # as if we did not know we cannot safely map this
                     pass
                 elif self.cfg.header_map == "drop":
@@ -368,13 +375,13 @@ class Request(Message):
             try:
                 socket.inet_pton(socket.AF_INET, s_addr)
                 socket.inet_pton(socket.AF_INET, d_addr)
-            except socket.error:
+            except OSError:
                 raise InvalidProxyLine(line)
         elif proto == "TCP6":
             try:
                 socket.inet_pton(socket.AF_INET6, s_addr)
                 socket.inet_pton(socket.AF_INET6, d_addr)
-            except socket.error:
+            except OSError:
                 raise InvalidProxyLine(line)
 
         try:
